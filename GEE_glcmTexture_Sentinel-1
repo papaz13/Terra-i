@@ -1,0 +1,52 @@
+# Run with GEE https://code.earthengine.google.com/ 
+
+var area = mask_ind
+// Load the Sentinel-1 ImageCollection.
+var sentinel1 = ee.ImageCollection('COPERNICUS/S1_GRD');
+Map.centerObject(area)
+
+// Filter by metadata properties.
+var vh = sentinel1
+  .filterDate('2018-01-01','2018-12-31')
+  // Filter to get images with VV and VH dual polarization.
+  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
+  // Filter to get images collected in interferometric wide swath mode.
+  .filter(ee.Filter.eq('instrumentMode', 'IW'));
+
+// Filter to get images from different look angles.
+var vhAscending = vh.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'));
+var vhDescending = vh.filter(ee.Filter.eq('orbitProperties_pass', 'DESCENDING'));
+
+// Create a composite from means at different polarizations and look angles.
+var composite = ee.Image.cat([
+  vhAscending.select('VH').median(),
+  ee.ImageCollection(vhAscending.select('VV').merge(vhDescending.select('VV'))).mean(),
+  vhDescending.select('VH').median()]).focal_median();
+
+// Display as a composite of polarization and backscattering characteristics.
+// Map.addLayer(composite.clip(area), {min: [-25, -20, -25], max: [0, 10, 0]}, 'composite');
+// print (composite)    
+
+// values to integer 
+var toBytes = composite.toInt()//.toByte();
+print(toBytes);
+
+//glcm texture
+var glcm = toBytes.glcmTexture({size: 1});
+var texture = glcm.select('VH_diss', 'VV_diss','VH_ent','VV_ent');
+print (glcm) ;
+print (texture) ;
+
+var texture_col= texture.clipToCollection(area);
+
+Map.addLayer(texture_col)
+
+// Export the image to an Earth Engine asset.
+Export.image.toAsset({
+  image: texture_col,
+  description: 'imageToAssetExample',
+  assetId: 'glcm_texture',
+  maxPixels:10000000000000,
+  //region: area,
+});
